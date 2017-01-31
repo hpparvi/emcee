@@ -79,12 +79,13 @@ class EnsembleSampler(Sampler):
     """
     def __init__(self, nwalkers, dim, lnpostfn, a=2.0, args=[], kwargs={},
                  postargs=None, threads=1, pool=None, live_dangerously=False,
-                 runtime_sortingfn=None):
+                 parallel_lnpostfn=False, runtime_sortingfn=None):
         self.k = nwalkers
         self.a = a
         self.threads = threads
         self.pool = pool
         self.runtime_sortingfn = runtime_sortingfn
+        self.parallel_lnpostfn = parallel_lnpostfn
 
         if postargs is not None:
             args = postargs
@@ -366,20 +367,23 @@ class EnsembleSampler(Sampler):
         if np.any(np.isnan(p)):
             raise ValueError("At least one parameter value was NaN.")
 
-        # If the `pool` property of the sampler has been set (i.e. we want
-        # to use `multiprocessing`), use the `pool`'s map method. Otherwise,
-        # just use the built-in `map` function.
-        if self.pool is not None:
-            M = self.pool.map
+        if self.parallel_lnpostfn:
+            results = self.lnprobfn(p)
         else:
-            M = map
+            # If the `pool` property of the sampler has been set (i.e. we want
+            # to use `multiprocessing`), use the `pool`'s map method. Otherwise,
+            # just use the built-in `map` function.
+            if self.pool is not None:
+                M = self.pool.map
+            else:
+                M = map
 
-        # sort the tasks according to (user-defined) some runtime guess
-        if self.runtime_sortingfn is not None:
-            p, idx = self.runtime_sortingfn(p)
+            # sort the tasks according to (user-defined) some runtime guess
+            if self.runtime_sortingfn is not None:
+                p, idx = self.runtime_sortingfn(p)
 
-        # Run the log-probability calculations (optionally in parallel).
-        results = list(M(self.lnprobfn, [p[i] for i in range(len(p))]))
+            # Run the log-probability calculations (optionally in parallel).
+            results = list(M(self.lnprobfn, [p[i] for i in range(len(p))]))
 
         try:
             lnprob = np.array([float(l[0]) for l in results])
